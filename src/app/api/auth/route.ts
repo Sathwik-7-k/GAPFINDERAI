@@ -1,6 +1,6 @@
-import { authenticateUser, createSession, getCurrentUser, registerUser, revokeCurrentSession, setSessionCookie } from "@/lib/auth";
+import { authenticateDemoUser, authenticateUser, createSession, getCurrentUser, registerUser, revokeCurrentSession, setSessionCookie } from "@/lib/auth";
 
-type AuthRequest = { action?: "register" | "signin"; name?: string; email?: string; password?: string };
+type AuthRequest = { action?: "register" | "signin" | "demo"; name?: string; email?: string; password?: string };
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -13,6 +13,17 @@ export async function POST(request: Request) {
     body = await request.json() as AuthRequest;
   } catch {
     return Response.json({ error: "Enter your account details." }, { status: 400 });
+  }
+
+  if (body.action === "demo") {
+    try {
+      const user = await authenticateDemoUser();
+      const token = createSession(user.id);
+      await setSessionCookie(token);
+      return Response.json({ user }, { headers: { "Cache-Control": "no-store" } });
+    } catch {
+      return Response.json({ error: "Could not initialize demo account right now." }, { status: 500 });
+    }
   }
 
   const email = body.email?.trim() ?? "";

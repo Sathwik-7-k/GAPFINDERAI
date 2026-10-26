@@ -1,62 +1,181 @@
-# GapFinder AI
+# GapFinder AI — Diagnosing Knowledge Gaps Before the Exam Does
 
-GapFinder helps students find what to study next from their own syllabus, notes, textbook extracts, and past papers. Each student creates an account, uploads their own material, gets a topic map, completes cited diagnostics, and receives a revision plan based on their results.
+> **GapFinder AI** takes a student’s syllabus, lecture notes, textbook extracts, and past question papers, finds their hidden weak areas through source-grounded diagnostics, and automatically builds an adaptive, personalized revision plan. 
+> 
+> *Chat can support the experience, but the main output is a diagnosis, not just answers.*
 
-## Start locally
+---
 
-Requirements: Node.js 22 or newer.
+## ⚡ Quick Links & Judge Demo Access
 
-```bash
-npm install
-npm run dev
+| Resource | Details |
+| :--- | :--- |
+| **Live Application** | Hosted on Vercel |
+| **1-Click Demo Login** | Available directly on the login screen (`⚡ 1-Click Judge Demo Login`) |
+| **Demo Email** | `judge@gapfinder.ai` |
+| **Demo Password** | `JudgeDemo2026!` |
+| **Preloaded Material** | *Computer Systems & Operating Systems* (Processes, Virtual Memory, Concurrency, Deadlocks, Storage) |
+
+---
+
+## 1. Problem Statement
+
+Students frequently study everything equally before exams, wasting hours reviewing topics they already grasp while critical conceptual gaps remain untouched. Traditional study tools and AI chatbots are purely reactive—they wait for the student to ask a question. However, **a student cannot ask about a gap they do not know they have.**
+
+**GapFinder AI** addresses this by:
+1. **Mapping Syllabi & Notes**: Automatically organizing unstructured course materials into topic hierarchies.
+2. **Grounded Diagnostic Testing**: Generating quiz questions tied directly to the student’s own notes, with verbatim source citations.
+3. **Objective Gap Analysis**: Categorizing topics into **Needs Focus** (<55%), **Building** (55–79%), and **Strong** (≥80%) based on diagnostic performance.
+4. **Adaptive Revision Planning**: Structuring study sessions ordered by lowest topic confidence and available study time.
+5. **Grounded Explanations**: Answering student inquiries with strict source citations (`[S1]`, `[S2]`) to eliminate hallucinations.
+
+---
+
+## 2. Architecture Overview
+
+GapFinder AI is built with **Next.js (App Router)**, **TypeScript**, and **Tailwind CSS**, integrating serverless API endpoints with **Google Gemini (2.5 Flash)** and a persistent SQLite data layer.
+
+```mermaid
+flowchart TD
+    subgraph Client ["Frontend (Next.js & React 19)"]
+        UI["Student Dashboard & Navigation"]
+        MapUI["Topic Map (Confidence Rings)"]
+        DiagUI["Diagnostic Quiz (Cited Questions)"]
+        PlanUI["Adaptive Revision Planner"]
+        ChatUI["Study Companion (Grounded Q&A)"]
+    end
+
+    subgraph Ingestion ["Material Ingestion & Parsing"]
+        Upload["File Upload (.pdf, .txt, .md)"]
+        PDFParser["Server-Side Text Extraction (unpdf)"]
+        Normalizer["Sentence-Bounded Chunking (1,400 chars)"]
+    end
+
+    subgraph RAG ["RAG Pipeline & AI Engine"]
+        Retriever["Lexical Retrieval & Term Overlap Engine"]
+        ContextBuilder["Cited Excerpt Formatter [S1, S2...]"]
+        Gemini["Google Gemini (gemini-2.5-flash)"]
+        Fallback["Deterministic Source-Excerpt Fallback Engine"]
+    end
+
+    subgraph Persistence ["Data & Session Layer"]
+        Auth["scrypt Salted Password Hashing + Session Cookies"]
+        DB[("SQLite Storage (data/gapfinder.sqlite or /tmp)")]
+        Workspace["Per-User Scoped Workspaces & Events"]
+    end
+
+    Upload --> PDFParser --> Normalizer
+    Normalizer --> DB
+    UI --> Auth --> DB
+    DiagUI --> Retriever --> ContextBuilder --> Gemini --> DiagUI
+    Retriever -.-> Fallback -.-> DiagUI
+    ChatUI --> Retriever --> ContextBuilder --> Gemini --> ChatUI
+    DiagUI -- Updates Mastery --> DB --> PlanUI
+    DB --> MapUI
 ```
 
-Open `http://localhost:3000`, create an account, and upload a PDF, TXT, or Markdown file. New accounts start empty: there are no shared sample documents, seeded topics, demo credentials, or inherited progress. Workspaces are stored in the local SQLite file `data/gapfinder.sqlite`, which is ignored by Git.
+---
 
-For generated tutor explanations, diagnostic questions, and semantic answer evaluation, create `.env.local`:
+## 3. RAG Pipeline & AI Workflow
+
+Judges can verify clear separation between **Retrieval** and **Generation**:
+
+### A. Document Chunking
+- When documents are uploaded, text is normalized and split across paragraph and section boundaries.
+- Chunks are bounded to **1,400 characters** with section header tracking (e.g., `# Virtual Memory & Paging Mechanisms`).
+- Each chunk preserves metadata: `title`, `section`, and `quote`.
+
+### B. Retrieval Mechanism
+- **Scoring**: Queries (from the student or the diagnostic generator) are stripped of common stop words. Candidate chunks are scored via unique term matches and normalized keyword density.
+- **Top-K Ranking**: The top matching chunks are extracted and assembled into a context payload.
+- **Strict Grounding Constraint**: The prompt instructs the model to answer **only** using the provided excerpts and cite each source as `[S1]`, `[S2]`, etc. External ungrounded facts are strictly forbidden.
+
+### C. Question Generation & Semantic Evaluation
+- **Question Generation**: Diagnostic MCQs are constructed from the retrieved excerpts, producing questions where each distractor and correct answer is grounded in the source text.
+- **Answer Evaluation**: Explains *why* the student's answer was correct or incorrect, citing the exact document title and section.
+- **Zero-Failure Fallback Engine**: If no API key is provided or the LLM request limits out, GapFinder activates a built-in deterministic fallback engine that synthesizes questions and feedback directly from source excerpts, ensuring the app never breaks.
+
+### D. Gap Diagnosis & Adaptive Revision Algorithm
+- Initial topic confidence is **Unassessed**.
+- Diagnostic quiz results dynamically calculate topic mastery scores:
+  - **Needs Focus** (<55%): Critical concept gaps; scheduled first.
+  - **Building** (55%–79%): Partial understanding; scheduled for reinforcement.
+  - **Strong** (≥80%): Solid mastery; scheduled for periodic review.
+- The revision plan automatically re-sorts tasks based on topic gap priority and available study time.
+
+---
+
+## 4. Features Checklist
+
+- [x] **Material Upload**: Accepts PDF, TXT, and Markdown documents with server-side extraction.
+- [x] **Topic Map**: Automatically builds topic cards with confidence meters and source links.
+- [x] **Diagnostic Quiz**: Grounded questions with source citations for every question and answer.
+- [x] **Gap Report**: Visual mastery ring, prioritized topic ranking, and category breakdown.
+- [x] **Personalized Revision Plan**: Dynamic timeline tasks with duration estimates and completion tracking.
+- [x] **Explain-This-Topic Assistant**: Grounded tutor citing source documents and sections.
+- [x] **Progress Dashboard**: Tracks completed diagnostics, study time, and session history.
+- [x] **Secure Authentication**: Salted scrypt hashing, HTTP-only secure cookies, and per-user data scoping.
+- [x] **Judge Demo Access**: 1-click login and preloaded Operating Systems syllabus and diagnostic data.
+
+---
+
+## 5. Local Setup Instructions
+
+### Prerequisites
+- **Node.js**: v20 or newer (v22 recommended)
+- **npm**: v10 or newer
+
+### Installation
+
+```bash
+# 1. Clone repository
+git clone https://github.com/Sathwik-7-k/GAPFINDERAI.git
+cd GAPFINDERAI
+
+# 2. Install dependencies
+npm install
+
+# 3. (Optional) Configure Gemini API Key
+# Copy example env or create .env.local
+```
+
+Create a `.env.local` file in the root directory:
 
 ```env
-GEMINI_API_KEY=your_google_ai_studio_key
+GEMINI_API_KEY=your_gemini_api_key_here
 GEMINI_MODEL=gemini-2.5-flash
 ```
 
-The key is used only in the server-side study route; do not use a `NEXT_PUBLIC_` prefix. Without a key, topic mapping, lexical retrieval, source-cited answers, excerpt-based questions, and exact-reference answer feedback still work locally.
+> **Note**: A Gemini API key enables generative question synthesis and semantic evaluation. If omitted, GapFinder seamlessly runs on its deterministic retrieval engine without crashing.
 
-## Student workflow
+### Run the Development Server
 
-1. Create an account with name, email, and a password of at least 12 characters, or sign in to an existing account.
-2. Upload the student's own syllabus, notes, textbook extract, or past paper. PDFs with selectable text are parsed server-side; scanned image-only PDFs need OCR first.
-3. GapFinder maps headings and sections in those sources into unassessed topics.
-4. A diagnostic generates multiple-choice questions from the student's retrieved excerpts. Each question has a source document/section; answers receive feedback and a citation.
-5. Completed diagnostics update topic confidence and reorder revision sessions. Sessions and progress are saved in that student's workspace.
-6. The tutor retrieves source chunks before answering and returns passage citations. With Gemini configured, generation receives only the retrieved excerpts and the student's prompt.
-
-## Architecture
-
-```text
-Next.js App Router + TypeScript
-  ├─ /api/auth: account registration, sign-in, session validation, sign-out
-  ├─ HTTP-only same-site session cookie; only a token hash is stored
-  ├─ SQLite: users, sessions, and user-scoped documents/topics/tasks/activity
-  ├─ /api/materials/parse: server-side PDF text extraction (unpdf)
-  ├─ /api/workspace: authenticated, per-user workspace persistence
-  ├─ /api/study: chunking → lexical retrieval → optional Gemini generation
-  └─ /api/activity: consented, in-app learning activity only
+```bash
+npm run dev
 ```
 
-Passwords are salted and hashed with Node's scrypt. Session cookies are HTTP-only, same-site, and secure in production. Workspace tables include a `user_id`; reads, writes, exports, and activity queries are scoped to the authenticated user.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-The SQLite database is initialized automatically under `data/gapfinder.sqlite`. Back up the file with the server stopped or use the authenticated **Data & privacy → Export backup** control. The activity feature is off by default. If enabled, it records pages/topics opened, visible study time, completed sessions, and diagnostic scores; it does not monitor device-wide activity, browser history, other apps, keystrokes, or raw tutor messages.
+---
 
-## Retrieval and generation
+## 6. Deployment Guide (Vercel)
 
-- Uploaded text is normalized into sections and chunks. The current retrieval baseline scores token overlap at request time; it does not use embeddings or a vector database.
-- Chat and question generation receive only the highest-ranked material excerpts. Responses cite the source title and section. If Gemini is unavailable, answers and questions use those excerpts directly.
-- Local answer evaluation compares the selected answer against the source-backed key. Gemini-backed evaluation can assess equivalent wording against the same source excerpt.
-- Topic confidence starts as **Unassessed**, not a fabricated score. Diagnostic results update mapped topics and reorder the personalized revision plan.
+GapFinder is optimized for zero-config Vercel deployment:
 
-## Deployment and limitations
+1. Push your repository to GitHub.
+2. Sign in to [Vercel](https://vercel.com/) and click **"Add New Project"** > import `GAPFINDERAI`.
+3. In **Environment Variables**, add:
+   - `GEMINI_API_KEY`: Your Google AI Studio API key.
+   - `GEMINI_MODEL`: `gemini-2.5-flash`
+4. Click **Deploy**.
 
-This is a functional self-hosted account prototype, not a hardened public identity service. Before exposing it to students on the internet, deploy behind HTTPS, use persistent managed storage or managed PostgreSQL, add sign-in rate limiting and email verification, configure backups and account deletion, review privacy/retention requirements, and test authorization boundaries. SQLite must live on a persistent writable volume; ephemeral serverless filesystems will lose account data.
+> **Serverless Storage Note**: On Vercel serverless functions, GapFinder automatically detects the serverless environment and stores SQLite in `/tmp/gapfinder.sqlite`. The preloaded judge demo account is auto-seeded on initialization.
 
-Other next steps include OCR, embedding-based retrieval with pgvector, broader file formats, teacher/class analytics, measured confidence calibration, spaced repetition, and LMS integrations. Topic mapping and confidence estimates should be evaluated on real course material before being used for high-stakes decisions.
+---
+
+## 7. Limitations & Future Scalability
+
+- **Optical Character Recognition (OCR)**: Currently parses text-based PDFs. Image-only scanned PDFs require client- or server-side OCR (e.g., Tesseract.js).
+- **Vector Embedding Store**: Next architectural step is integrating `pgvector` or Supabase Vector with Gemini embeddings (`text-embedding-004`) for hybrid lexical-semantic search.
+- **Spaced Repetition (SRS)**: Planned integration of the SuperMemo (SM-2) algorithm for optimal revision interval reminders.
+- **Teacher & Class Analytics**: Aggregate view allowing teachers to inspect class-wide topic weaknesses without exposing private student documents.

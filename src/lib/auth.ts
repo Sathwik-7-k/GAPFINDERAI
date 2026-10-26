@@ -1,10 +1,17 @@
 import { randomBytes, randomUUID, scrypt, timingSafeEqual, createHash } from "node:crypto";
 import { cookies } from "next/headers";
 import { getDatabase } from "@/lib/database";
+import { SAMPLE_WORKSPACE } from "@/lib/sample-data";
+import { loadWorkspace, saveWorkspace } from "@/lib/workspace-db";
 
 const SESSION_COOKIE = "gapfinder_session";
 const SESSION_DAYS = 14;
 const PASSWORD_BYTES = 64;
+
+export const DEMO_USER_EMAIL = "judge@gapfinder.ai";
+export const DEMO_USER_PASSWORD = "JudgeDemo2026!";
+export const DEMO_USER_NAME = "Judge & Evaluator";
+export const DEMO_USER_ID = "judge-demo-user-id";
 
 export type AuthUser = { id: string; name: string; email: string };
 
@@ -20,6 +27,46 @@ async function passwordHash(password: string, salt: string) {
     });
   });
   return derived.toString("hex");
+}
+
+export async function ensureDemoUser(): Promise<AuthUser> {
+  const db = getDatabase();
+  const normalizedEmail = DEMO_USER_EMAIL.toLowerCase();
+  const record = db.prepare("SELECT id, name, email FROM users WHERE email = ? COLLATE NOCASE")
+    .get(normalizedEmail) as AuthUser | undefined;
+
+  let user: AuthUser;
+  if (!record) {
+    const salt = randomBytes(16).toString("hex");
+    const hash = await passwordHash(DEMO_USER_PASSWORD, salt);
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.prepare("INSERT INTO users (id, name, email, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(DEMO_USER_ID, DEMO_USER_NAME, normalizedEmail, hash, salt, new Date().toISOString());
+      db.prepare("INSERT INTO user_workspaces (user_id, updated_at) VALUES (?, ?)").run(DEMO_USER_ID, new Date().toISOString());
+      db.exec("COMMIT");
+    } catch {
+      db.exec("ROLLBACK");
+    }
+    user = { id: DEMO_USER_ID, name: DEMO_USER_NAME, email: normalizedEmail };
+  } else {
+    user = record;
+  }
+
+  try {
+    const currentWorkspace = loadWorkspace(user.id);
+    if (!currentWorkspace.documents.length) {
+      saveWorkspace(user.id, SAMPLE_WORKSPACE);
+    }
+  } catch {
+    // If workspace save fails, continue
+  }
+
+  return user;
+}
+
+export async function authenticateDemoUser(): Promise<AuthUser> {
+  return ensureDemoUser();
 }
 
 export async function registerUser(name: string, email: string, password: string): Promise<AuthUser> {
@@ -42,9 +89,14 @@ export async function registerUser(name: string, email: string, password: string
 }
 
 export async function authenticateUser(email: string, password: string): Promise<AuthUser | null> {
+  const normalized = email.trim().toLowerCase();
+  if (normalized === DEMO_USER_EMAIL.toLowerCase() && password === DEMO_USER_PASSWORD) {
+    return ensureDemoUser();
+  }
+
   const db = getDatabase();
   const record = db.prepare("SELECT id, name, email, password_hash, password_salt FROM users WHERE email = ? COLLATE NOCASE")
-    .get(email.trim().toLowerCase()) as (AuthUser & { password_hash: string; password_salt: string }) | undefined;
+    .get(normalized) as (AuthUser & { password_hash: string; password_salt: string }) | undefined;
   if (!record) {
     await passwordHash(password, "gapfinder-invalid-user-salt");
     return null;

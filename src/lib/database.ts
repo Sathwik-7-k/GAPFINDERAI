@@ -2,15 +2,26 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-const databasePath = join(process.cwd(), "data", "gapfinder.sqlite");
+const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.TMPDIR);
+const databasePath = isServerless
+  ? join("/tmp", "gapfinder.sqlite")
+  : join(process.cwd(), "data", "gapfinder.sqlite");
 let connection: DatabaseSync | undefined;
 
 export function getDatabase() {
   if (connection) return connection;
-  mkdirSync(dirname(databasePath), { recursive: true });
+  try {
+    mkdirSync(dirname(databasePath), { recursive: true });
+  } catch {
+    // Directory might already exist or be /tmp
+  }
   const db = new DatabaseSync(databasePath);
+  try {
+    db.exec(`PRAGMA journal_mode = WAL;`);
+  } catch {
+    // If WAL is unsupported on serverless filesystem, continue with default mode
+  }
   db.exec(`
-    PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,

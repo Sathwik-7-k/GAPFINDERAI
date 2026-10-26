@@ -247,6 +247,22 @@ export default function Home() {
     setUploadBusy(false);
   }
 
+  async function loadSampleWorkspace() {
+    setUploadBusy(true);
+    try {
+      const response = await fetch("/api/workspace/sample", { method: "POST" });
+      if (!response.ok) throw new Error("Could not load sample course.");
+      const state = await response.json() as { documents: StudyDocument[]; topics: StudyTopic[]; tasks: StudyTask[]; attempts: number; analyticsOptIn: boolean };
+      applyWorkspace(state);
+      setPage("Overview");
+      setNotice("Sample course (Operating Systems) loaded with topic map and diagnostics!");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not load sample course.");
+    } finally {
+      setUploadBusy(false);
+    }
+  }
+
   async function sendChat(text = chatDraft) {
     const question = text.trim();
     if (!question || chatBusy) return;
@@ -494,7 +510,7 @@ export default function Home() {
       <section className="main-column">
         <header className="topbar"><button className="mobile-menu icon-button" aria-label="Open navigation" onClick={() => setMobileNavOpen(true)}><Menu size={19} /></button><div className="breadcrumb"><span>My study space</span><ChevronRight size={14} /><strong>{page}</strong></div><div className="topbar-actions"><span className="today-label">{currentDate.toUpperCase()}</span><span className="topbar-avatar">{initials}</span></div></header>
         <div className="page-content">
-          {page === "Overview" && documents.length === 0 && <WelcomePage name={displayName} onUpload={() => fileInput.current?.click()} />}
+          {page === "Overview" && documents.length === 0 && <WelcomePage name={displayName} onUpload={() => fileInput.current?.click()} onLoadSample={loadSampleWorkspace} uploadBusy={uploadBusy} />}
           {page === "Overview" && documents.length > 0 && <>
             <div className="page-heading heading-with-action"><div><span className="eyebrow">YOUR LEARNING, IN FOCUS</span><h1>Welcome back, {displayName.split(" ")[0]}<span className="heading-period">.</span></h1><p>Your study space is built from {documents.length} source{documents.length === 1 ? "" : "s"} you uploaded. Start a diagnostic when you’re ready to check your understanding.</p></div><button className="button button-primary" onClick={() => void startQuiz()}><Sparkles size={16} /> Start a diagnostic <ArrowRight size={15} /></button></div>
             <div className="overview-grid"><div className="overview-main">
@@ -510,14 +526,14 @@ export default function Home() {
             </aside></div>
           </>}
 
-          {page === "Topic map" && (topics.length ? <TopicMapPage topics={topics} onAsk={(topic) => { setChatDraft(`Explain ${topic} using my uploaded material`); document.getElementById("tutor-input")?.focus(); }} /> : <WelcomePage name={displayName} onUpload={() => fileInput.current?.click()} />)}
+          {page === "Topic map" && (topics.length ? <TopicMapPage topics={topics} onAsk={(topic) => { setChatDraft(`Explain ${topic} using my uploaded material`); document.getElementById("tutor-input")?.focus(); }} /> : <WelcomePage name={displayName} onUpload={() => fileInput.current?.click()} onLoadSample={loadSampleWorkspace} uploadBusy={uploadBusy} />)}
           {page === "Diagnosis" && <div className="content-narrow"><div className="page-heading"><span className="eyebrow">A QUICK CHECK, GROUNDED IN YOUR NOTES</span><h1>Diagnostic check<span className="heading-period">.</span></h1><p>Questions are created from your own materials. Each answer includes its source and a clear explanation.</p></div>
             {!quiz.length && !quizBusy && <section className="diagnostic-start panel"><div className="diagnostic-art"><span><Target size={29} /></span><i /><i /><i /></div><div className="diagnostic-copy"><span className="eyebrow">ABOUT 5 MINUTES</span><h2>Find out what’s sticking.</h2><p>We’ll pull a short set of questions from {documents.length} {documents.length === 1 ? "study source" : "study sources"}. Your topic map and revision plan update when you finish.</p><div className="diagnostic-facts"><span><CircleHelp size={15} /> Questions from your sources</span><span><FileText size={15} /> Cited to your notes</span><span><Sparkles size={15} /> Adaptive follow-up</span></div><button className="button button-primary" onClick={() => void startQuiz()}><Sparkles size={16} /> Generate my diagnostic <ArrowRight size={15} /></button></div></section>}
             {quizBusy && !quiz.length && <section className="loading-panel panel"><LoaderCircle className="spin" size={25} /><strong>Building questions from your material…</strong><span>Finding useful passages and linking each question to its source.</span></section>}
             {quizScore !== null && <section className="result-panel panel"><div className="result-score"><span className="eyebrow">DIAGNOSTIC COMPLETE</span><strong>{quizScore}<small>%</small></strong><span>on this attempt</span></div><div className="result-copy"><h2>{quizScore >= 80 ? "That knowledge is holding." : quizScore >= 50 ? "Good signals, with room to grow." : "Now we know where to focus."}</h2><p>Your topic confidence and next revision steps have been updated from this attempt.</p><div className="result-actions"><button className="button button-primary" onClick={() => selectPage("Topic map")}>Review my topic map <ArrowRight size={15} /></button><button className="button button-secondary" onClick={() => void startQuiz()}>Try another check</button></div></div></section>}
             {quiz.length > 0 && quizScore === null && currentQuestion && <section className="quiz-panel panel"><div className="quiz-topline"><div><span className="eyebrow">QUESTION {quizIndex + 1} OF {quiz.length}</span><h2>{currentQuestion.topic}</h2></div><button className="quiet-link" onClick={() => { setQuiz([]); setQuizResult(null); }}>Exit check <X size={14} /></button></div><div className="quiz-progress">{quiz.map((question, index) => <i key={`${question.topic}-${index}`} className={index < quizIndex ? "quiz-step-done" : index === quizIndex ? "quiz-step-current" : ""} />)}</div><div className="question-source"><FileText size={14} /><span>{currentQuestion.source.title} <b>·</b> {currentQuestion.source.section}</span></div><h3 className="question-text">{currentQuestion.question}</h3><div className="answer-options">{currentQuestion.options.map((option, index) => <button key={`${index}-${option}`} className={`answer-option ${selectedAnswer === option ? "answer-selected" : ""} ${quizResult && option === currentQuestion.answer ? "answer-correct" : ""} ${quizResult && selectedAnswer === option && !quizResult.correct ? "answer-wrong" : ""}`} onClick={() => !quizResult && setSelectedAnswer(option)}><span className="option-letter">{String.fromCharCode(65 + index)}</span><span>{option}</span>{quizResult && option === currentQuestion.answer && <CheckCircle2 size={17} />}</button>)}</div>{quizResult ? <><div className={`answer-feedback ${quizResult.correct ? "feedback-correct" : "feedback-review"}`}><span className="feedback-icon">{quizResult.correct ? <CheckCircle2 size={18} /> : <Lightbulb size={18} />}</span><div><strong>{quizResult.correct ? "That’s right." : "Let’s strengthen this."}</strong><p>{quizResult.explanation}</p>{quizResult.source && <small>Source: {quizResult.source.title} · {quizResult.source.section}</small>}</div></div><button className="button button-primary quiz-submit" onClick={continueQuiz}>{quizIndex + 1 === quiz.length ? "See my results" : "Next question"} <ArrowRight size={15} /></button></> : <button className="button button-primary quiz-submit" disabled={!selectedAnswer || quizBusy} onClick={() => void submitAnswer()}>{quizBusy && <LoaderCircle className="spin" size={16} />} Check answer <ArrowRight size={15} /></button>}</section>}
           </div>}
-          {page === "Revision plan" && (tasks.length ? <RevisionPlanPage tasks={tasksByPriority} topics={topics} onToggle={toggleTask} onStartTask={setSelectedTask} onStartQuiz={() => void startQuiz()} dateLabel={currentDate} /> : <WelcomePage name={displayName} onUpload={() => fileInput.current?.click()} />)}
+          {page === "Revision plan" && (tasks.length ? <RevisionPlanPage tasks={tasksByPriority} topics={topics} onToggle={toggleTask} onStartTask={setSelectedTask} onStartQuiz={() => void startQuiz()} dateLabel={currentDate} /> : <WelcomePage name={displayName} onUpload={() => fileInput.current?.click()} onLoadSample={loadSampleWorkspace} uploadBusy={uploadBusy} />)}
           {page === "Library" && <><div className="library-remap-row"><button className="button button-secondary" onClick={() => void remapMaterials()} disabled={!documents.length || uploadBusy}><Network size={15} /> Refresh topic map</button></div><LibraryPage documents={documents} topics={topics} onUpload={() => fileInput.current?.click()} onRemove={(id) => void removeDocument(id)} uploadBusy={uploadBusy} /></>}
           {page === "Data & privacy" && <DataPrivacyPage documents={documents.length} topics={topics.length} tasks={tasks.length} attempts={attempts} analyticsOptIn={analyticsOptIn} activity={activity} busy={activityBusy} onConsent={(enabled) => void setActivityConsent(enabled)} onClear={() => void clearActivityHistory()} />}
         </div>
@@ -630,8 +646,30 @@ function makeRevisionTasks(topics: StudyTopic[], existingTasks: StudyTask[] = []
     }));
 }
 
-function WelcomePage({ name, onUpload }: { name: string; onUpload: () => void }) {
-  return <div className="welcome-page"><span className="eyebrow">YOUR STUDY SPACE IS READY</span><h1>Let’s find what to focus on, {name.split(" ")[0]}<span className="heading-period">.</span></h1><p>Start with a syllabus, class notes, a textbook chapter, or a past paper. GapFinder will map your material before it asks you to revise it.</p><button className="button button-primary" onClick={onUpload}><Upload size={16} /> Add your first material <ArrowRight size={15} /></button><div className="welcome-steps"><span><i>01</i><strong>Add a source</strong><small>PDF, text, or Markdown</small></span><span><i>02</i><strong>Map its topics</strong><small>Sections from your material</small></span><span><i>03</i><strong>Check your gaps</strong><small>Cited questions and feedback</small></span></div></div>;
+function WelcomePage({ name, onUpload, onLoadSample, uploadBusy }: { name: string; onUpload: () => void; onLoadSample?: () => void; uploadBusy?: boolean }) {
+  return (
+    <div className="welcome-page">
+      <span className="eyebrow">YOUR STUDY SPACE IS READY</span>
+      <h1>Let’s find what to focus on, {name.split(" ")[0]}<span className="heading-period">.</span></h1>
+      <p>Start with a syllabus, class notes, a textbook chapter, or a past paper. GapFinder will map your material before it asks you to revise it.</p>
+      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", justifyContent: "center", marginTop: "12px", marginBottom: "8px" }}>
+        <button className="button button-primary" onClick={onUpload} disabled={uploadBusy}>
+          <Upload size={16} /> Add your first material <ArrowRight size={15} />
+        </button>
+        {onLoadSample && (
+          <button className="button button-secondary" onClick={onLoadSample} disabled={uploadBusy}>
+            {uploadBusy ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}
+            Load Sample Course (Operating Systems)
+          </button>
+        )}
+      </div>
+      <div className="welcome-steps">
+        <span><i>01</i><strong>Add a source</strong><small>PDF, text, or Markdown</small></span>
+        <span><i>02</i><strong>Map its topics</strong><small>Sections from your material</small></span>
+        <span><i>03</i><strong>Check your gaps</strong><small>Cited questions and feedback</small></span>
+      </div>
+    </div>
+  );
 }
 
 function AuthPage({ onAuthenticated }: { onAuthenticated: (user: AuthUser) => Promise<void> }) {
@@ -640,7 +678,27 @@ function AuthPage({ onAuthenticated }: { onAuthenticated: (user: AuthUser) => Pr
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [demoBusy, setDemoBusy] = useState(false);
   const [error, setError] = useState("");
+
+  async function loginAsDemo() {
+    setDemoBusy(true);
+    setError("");
+    try {
+      const response = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "demo" }),
+      });
+      const result = await response.json() as { user?: AuthUser; error?: string };
+      if (!response.ok || !result.user) throw new Error(result.error ?? "Could not start demo session.");
+      await onAuthenticated(result.user);
+    } catch (demoError) {
+      setError(demoError instanceof Error ? demoError.message : "Could not start demo session.");
+    } finally {
+      setDemoBusy(false);
+    }
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -662,5 +720,73 @@ function AuthPage({ onAuthenticated }: { onAuthenticated: (user: AuthUser) => Pr
     }
   }
 
-  return <main className="auth-shell"><div className="auth-aside"><div className="auth-brand" aria-label="GapFinder"><span className="brand-mark"><Target size={19} /></span><span>gapfinder</span><small>AI</small></div><div className="auth-pitch"><span className="eyebrow">STUDY WITH INTENTION</span><h1>Find the gaps before the exam does.</h1><p>Bring your own study material. Get a clear picture of what you know and a better next step.</p><div className="auth-proof"><span><BookOpen size={16} /> Grounded in your materials</span><span><Target size={16} /> Built around your gaps</span><span><ShieldCheck size={16} /> Your own study space</span></div></div><span className="auth-aside-note">Your workspace starts empty and belongs to your account.</span></div><section className="auth-main"><div className="auth-form-wrap"><div className="auth-tabs" role="tablist" aria-label="Account action"><button role="tab" aria-selected={mode === "register"} className={mode === "register" ? "auth-tab auth-tab-active" : "auth-tab"} onClick={() => { setMode("register"); setError(""); }}>Create account</button><button role="tab" aria-selected={mode === "signin"} className={mode === "signin" ? "auth-tab auth-tab-active" : "auth-tab"} onClick={() => { setMode("signin"); setError(""); }}>Sign in</button></div><span className="eyebrow">{mode === "register" ? "A PERSONAL SPACE FOR YOUR STUDIES" : "WELCOME BACK"}</span><h2>{mode === "register" ? "Create your account" : "Sign in to GapFinder"}</h2><p className="auth-subtitle">{mode === "register" ? "Your materials and progress stay in your account." : "Continue with your study materials and progress."}</p><form className="auth-form" onSubmit={submit}>{mode === "register" && <label>Your name<input autoComplete="name" required minLength={2} maxLength={80} value={name} onChange={(event) => setName(event.target.value)} placeholder="How should we address you?" /></label>}<label>Email address<input type="email" autoComplete="email" required maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" /></label><label>Password<input type="password" autoComplete={mode === "register" ? "new-password" : "current-password"} required minLength={12} maxLength={256} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="At least 12 characters" /></label>{mode === "register" && <span className="password-note">Use at least 12 characters. Your password is stored as a one-way hash.</span>}{error && <p className="auth-error" role="alert">{error}</p>}<button className="button button-primary auth-submit" type="submit" disabled={busy}>{busy ? <LoaderCircle className="spin" size={16} /> : null}{mode === "register" ? "Create account" : "Sign in"}<ArrowRight size={15} /></button></form><p className="auth-footnote">By continuing, you create a private GapFinder study workspace. You can add your materials after signing in.</p></div></section></main>;
+  return (
+    <main className="auth-shell">
+      <div className="auth-aside">
+        <div className="auth-brand" aria-label="GapFinder">
+          <span className="brand-mark"><Target size={19} /></span>
+          <span>gapfinder</span><small>AI</small>
+        </div>
+        <div className="auth-pitch">
+          <span className="eyebrow">STUDY WITH INTENTION</span>
+          <h1>Find the gaps before the exam does.</h1>
+          <p>Bring your own study material. Get a clear picture of what you know and a better next step.</p>
+          <div className="auth-proof">
+            <span><BookOpen size={16} /> Grounded in your materials</span>
+            <span><Target size={16} /> Built around your gaps</span>
+            <span><ShieldCheck size={16} /> Your own study space</span>
+          </div>
+        </div>
+        <span className="auth-aside-note">Judges can use the 1-click demo button to evaluate instantly.</span>
+      </div>
+      <section className="auth-main">
+        <div className="auth-form-wrap">
+          <div style={{ background: "rgba(99, 102, 241, 0.08)", border: "1px solid rgba(99, 102, 241, 0.25)", borderRadius: "10px", padding: "14px 16px", marginBottom: "18px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
+              <strong style={{ fontSize: "14px", display: "flex", alignItems: "center", gap: "6px", color: "var(--ink, #1e1b4b)" }}>
+                <Sparkles size={16} /> Judge & Evaluator Quick Access
+              </strong>
+              <span style={{ fontSize: "11px", background: "#4f46e5", color: "#fff", padding: "2px 8px", borderRadius: "12px", fontWeight: "600" }}>READY TO TEST</span>
+            </div>
+            <p style={{ fontSize: "13px", color: "var(--ink-muted, #4b5563)", margin: "0 0 10px 0", lineHeight: "1.4" }}>
+              Preloaded with Operating Systems syllabus, topic map, gap analysis, and cited diagnostic quiz.
+            </p>
+            <button
+              type="button"
+              className="button button-primary"
+              style={{ width: "100%", justifyContent: "center", fontWeight: "600", gap: "8px" }}
+              disabled={busy || demoBusy}
+              onClick={() => void loginAsDemo()}
+            >
+              {demoBusy ? <LoaderCircle className="spin" size={16} /> : <Target size={16} />}
+              ⚡ 1-Click Judge Demo Login
+            </button>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "#6b7280", marginTop: "8px" }}>
+              <span>Email: <code>judge@gapfinder.ai</code></span>
+              <span>Password: <code>JudgeDemo2026!</code></span>
+            </div>
+          </div>
+
+          <div className="auth-tabs" role="tablist" aria-label="Account action">
+            <button role="tab" aria-selected={mode === "register"} className={mode === "register" ? "auth-tab auth-tab-active" : "auth-tab"} onClick={() => { setMode("register"); setError(""); }}>Create account</button>
+            <button role="tab" aria-selected={mode === "signin"} className={mode === "signin" ? "auth-tab auth-tab-active" : "auth-tab"} onClick={() => { setMode("signin"); setError(""); }}>Sign in</button>
+          </div>
+          <span className="eyebrow">{mode === "register" ? "A PERSONAL SPACE FOR YOUR STUDIES" : "WELCOME BACK"}</span>
+          <h2>{mode === "register" ? "Create your account" : "Sign in to GapFinder"}</h2>
+          <p className="auth-subtitle">{mode === "register" ? "Your materials and progress stay in your account." : "Continue with your study materials and progress."}</p>
+          <form className="auth-form" onSubmit={submit}>
+            {mode === "register" && <label>Your name<input autoComplete="name" required minLength={2} maxLength={80} value={name} onChange={(event) => setName(event.target.value)} placeholder="How should we address you?" /></label>}
+            <label>Email address<input type="email" autoComplete="email" required maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" /></label>
+            <label>Password<input type="password" autoComplete={mode === "register" ? "new-password" : "current-password"} required minLength={12} maxLength={256} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="At least 12 characters" /></label>
+            {mode === "register" && <span className="password-note">Use at least 12 characters. Your password is stored as a one-way hash.</span>}
+            {error && <p className="auth-error" role="alert">{error}</p>}
+            <button className="button button-primary auth-submit" type="submit" disabled={busy || demoBusy}>
+              {busy ? <LoaderCircle className="spin" size={16} /> : null}{mode === "register" ? "Create account" : "Sign in"}<ArrowRight size={15} />
+            </button>
+          </form>
+          <p className="auth-footnote">By continuing, you create a private GapFinder study workspace. You can add your materials after signing in.</p>
+        </div>
+      </section>
+    </main>
+  );
 }

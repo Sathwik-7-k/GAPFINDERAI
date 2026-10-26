@@ -1,8 +1,8 @@
 # GapFinder AI
 
-GapFinder diagnoses a student's knowledge gaps from their own study materials, then turns the results into a focused revision plan. This runnable demo ships with sample A-level Biology sources and a preloaded student workspace.
+GapFinder helps students find what to study next from their own syllabus, notes, textbook extracts, and past papers. Each student creates an account, uploads their own material, gets a topic map, completes cited diagnostics, and receives a revision plan based on their results.
 
-## Run locally
+## Start locally
 
 Requirements: Node.js 22 or newer.
 
@@ -11,72 +11,52 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`. The sample workspace is ready immediately; no login or API key is required for the demo. SQLite stores documents, topics, revision tasks, and attempt counts in `data/gapfinder.sqlite`; the database file is excluded from Git. This single-workspace demo has no authentication or per-student access control and must not be exposed as a production service.
+Open `http://localhost:3000`, create an account, and upload a PDF, TXT, or Markdown file. New accounts start empty: there are no shared sample documents, seeded topics, demo credentials, or inherited progress. Workspaces are stored in the local SQLite file `data/gapfinder.sqlite`, which is ignored by Git.
 
-To enable generated tutor explanations, quiz questions, and answer feedback, create `.env.local`:
+For generated tutor explanations, diagnostic questions, and semantic answer evaluation, create `.env.local`:
 
 ```env
 GEMINI_API_KEY=your_google_ai_studio_key
 GEMINI_MODEL=gemini-2.5-flash
 ```
 
-The key is read only by the server route and must never use a `NEXT_PUBLIC_` prefix. Without a key, retrieval, cited answers, source-derived quiz questions, and exact-reference answer evaluation continue in demo mode.
+The key is used only in the server-side study route; do not use a `NEXT_PUBLIC_` prefix. Without a key, topic mapping, lexical retrieval, source-cited answers, excerpt-based questions, and exact-reference answer feedback still work locally.
 
-## What works
+## Student workflow
 
-- Preloaded syllabus, class notes, and a past-paper excerpt with topic-level confidence and explanations.
-- PDF and text/Markdown upload; selectable PDF text is extracted server-side. Scanned image-only PDFs require OCR and are reported as unsupported.
-- Topic map with evidence, source references, confidence levels, and links into the tutor.
-- Material-grounded diagnostic questions with citations, answer feedback, and updates to the topic map and revision plan.
-- Prioritized revision sessions that can be completed and persisted in SQLite.
-- An optional, user-controlled activity history for in-app pages/topics opened, visible study time, completed sessions, and quiz scores. Tracking is off by default; no device-wide activity, browser history, other apps, keystrokes, or raw tutor messages are captured.
-- A Data & privacy screen to view activity, switch tracking off, clear history, and export a JSON backup of the workspace database.
-- Study companion that retrieves relevant chunks from the student's sources before answering. The Gemini route receives only retrieved excerpts and the user's request.
-- Responsive dashboard and sample student workspace (Amina Mercer).
+1. Create an account with name, email, and a password of at least 12 characters, or sign in to an existing account.
+2. Upload the student's own syllabus, notes, textbook extract, or past paper. PDFs with selectable text are parsed server-side; scanned image-only PDFs need OCR first.
+3. GapFinder maps headings and sections in those sources into unassessed topics.
+4. A diagnostic generates multiple-choice questions from the student's retrieved excerpts. Each question has a source document/section; answers receive feedback and a citation.
+5. Completed diagnostics update topic confidence and reorder revision sessions. Sessions and progress are saved in that student's workspace.
+6. The tutor retrieves source chunks before answering and returns passage citations. With Gemini configured, generation receives only the retrieved excerpts and the student's prompt.
 
 ## Architecture
 
 ```text
-Browser workspace
-  ├─ Dashboard, topic map, quiz, revision plan, tutor
-  ├─ Opt-in in-app activity only (consent-controlled)
-  └─ Next.js Route Handlers
-       ├─ GET/POST /api/workspace: SQLite workspace persistence
-       ├─ GET/POST/DELETE /api/activity: activity consent and history
-       ├─ GET /api/workspace/export: downloadable JSON backup
-       ├─ POST /api/materials/parse: PDF text extraction with unpdf
-       └─ POST /api/study: chunking → lexical retrieval → optional Gemini generation
+Next.js App Router + TypeScript
+  ├─ /api/auth: account registration, sign-in, session validation, sign-out
+  ├─ HTTP-only same-site session cookie; only a token hash is stored
+  ├─ SQLite: users, sessions, and user-scoped documents/topics/tasks/activity
+  ├─ /api/materials/parse: server-side PDF text extraction (unpdf)
+  ├─ /api/workspace: authenticated, per-user workspace persistence
+  ├─ /api/study: chunking → lexical retrieval → optional Gemini generation
+  └─ /api/activity: consented, in-app learning activity only
 ```
 
-The SQLite file is created automatically on first run and is stored locally at `data/gapfinder.sqlite`. Back it up from the Data & privacy screen or copy the database file while the server is stopped.
+Passwords are salted and hashed with Node's scrypt. Session cookies are HTTP-only, same-site, and secure in production. Workspace tables include a `user_id`; reads, writes, exports, and activity queries are scoped to the authenticated user.
 
-```text
-Database tables
-  ├─ workspaces: demo attempt count and analytics consent
-  ├─ documents: uploaded/seeded extracted text
-  ├─ topics: mastery scores and explanations
-  ├─ tasks: revision sessions and completion
-  └─ activity_events: opted-in page/topic/session/diagnostic metadata
-```
+The SQLite database is initialized automatically under `data/gapfinder.sqlite`. Back up the file with the server stopped or use the authenticated **Data & privacy → Export backup** control. The activity feature is off by default. If enabled, it records pages/topics opened, visible study time, completed sessions, and diagnostic scores; it does not monitor device-wide activity, browser history, other apps, keystrokes, or raw tutor messages.
 
-## RAG and AI workflow
+## Retrieval and generation
 
-1. Materials are normalized into sections and chunks; PDFs are converted to selectable text before entering the workspace.
-2. `/api/study` scores chunks against the question using token overlap, then passes only the best matching excerpts to the optional Gemini call. This demo uses lexical retrieval at request time, not embeddings or a vector database.
-3. Tutor answers are constrained to retrieved excerpts. The route returns matching document, section, and passage separately as citations.
-4. Quiz generation receives retrieved excerpts and is asked to return source identifiers and quotes. If Gemini is unavailable or returns invalid JSON, source-derived questions use sentences from those same excerpts.
-5. Answer evaluation compares the response with the source-backed answer and excerpt. Provider-backed evaluation can recognize equivalent phrasing; local demo evaluation uses exact option matching.
-6. Quiz outcomes adjust topic confidence and the prioritized study list. Initial confidence values are illustrative demo data, not validated psychometric measurements.
+- Uploaded text is normalized into sections and chunks. The current retrieval baseline scores token overlap at request time; it does not use embeddings or a vector database.
+- Chat and question generation receive only the highest-ranked material excerpts. Responses cite the source title and section. If Gemini is unavailable, answers and questions use those excerpts directly.
+- Local answer evaluation compares the selected answer against the source-backed key. Gemini-backed evaluation can assess equivalent wording against the same source excerpt.
+- Topic confidence starts as **Unassessed**, not a fabricated score. Diagnostic results update mapped topics and reorder the personalized revision plan.
 
-## Limitations and next steps
+## Deployment and limitations
 
-- SQLite is a local, single-user demo database with no authentication or per-student authorization. Before real student use or public deployment, add Supabase Auth, per-user data isolation, managed encrypted storage, deletion controls, and a privacy/retention policy.
-- Replace lexical ranking with embeddings and a persistent vector store such as pgvector; evaluate retrieval quality on real course material.
-- Add OCR for scanned PDFs, broader file formats, document-level permissions, and upload malware scanning.
-- Calibrate confidence with larger question sets, rubric-based evaluation, teacher review, and measured learning outcomes.
-- Add class analytics, spaced-repetition reminders, more subjects/languages, and LMS integrations.
-- Set `GEMINI_API_KEY` only in the server environment. Never commit secrets or send source material to a provider without appropriate consent.
+This is a functional self-hosted account prototype, not a hardened public identity service. Before exposing it to students on the internet, deploy behind HTTPS, use persistent managed storage or managed PostgreSQL, add sign-in rate limiting and email verification, configure backups and account deletion, review privacy/retention requirements, and test authorization boundaries. SQLite must live on a persistent writable volume; ephemeral serverless filesystems will lose account data.
 
-## Demo workspace
-
-The home screen opens directly into Amina Mercer's Biology · A level workspace, with syllabus, class notes, past-paper excerpt, diagnostic findings, and a starter revision plan. No shared demo password is needed because this local demo does not implement authentication.
+Other next steps include OCR, embedding-based retrieval with pgvector, broader file formats, teacher/class analytics, measured confidence calibration, spaced repetition, and LMS integrations. Topic mapping and confidence estimates should be evaluated on real course material before being used for high-stakes decisions.

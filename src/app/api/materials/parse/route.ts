@@ -1,10 +1,13 @@
 import { extractText } from "unpdf";
+import { getCurrentUser } from "@/lib/auth";
 
 const MAX_FILE_SIZE = 12 * 1024 * 1024;
 const MAX_TEXT_LENGTH = 160_000;
 
 export async function POST(request: Request) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return Response.json({ error: "Sign in to upload study materials." }, { status: 401 });
     const formData = await request.formData();
     const file = formData.get("file");
     if (!(file instanceof File)) {

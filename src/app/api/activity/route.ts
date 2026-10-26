@@ -1,11 +1,14 @@
 import { clearActivity, listActivity, loadWorkspace, recordActivity, updateAnalyticsConsent, type ActivityEventInput } from "@/lib/workspace-db";
+import { getCurrentUser } from "@/lib/auth";
 
 const allowedKinds = new Set<ActivityEventInput["kind"]>(["page_view", "topic_view", "study_time", "task_completed", "diagnostic"]);
 
 export async function GET() {
   try {
-    const workspace = loadWorkspace();
-    return Response.json({ analyticsOptIn: workspace.analyticsOptIn, events: listActivity() }, { headers: { "Cache-Control": "no-store" } });
+    const user = await getCurrentUser();
+    if (!user) return Response.json({ error: "Sign in to view your activity." }, { status: 401 });
+    const workspace = loadWorkspace(user.id);
+    return Response.json({ analyticsOptIn: workspace.analyticsOptIn, events: listActivity(user.id) }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return Response.json({ error: "Could not read activity from the local database." }, { status: 500 });
   }
@@ -13,9 +16,11 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return Response.json({ error: "Sign in to update activity settings." }, { status: 401 });
     const body = await request.json() as { consent?: unknown; event?: Partial<ActivityEventInput> };
     if (typeof body.consent === "boolean") {
-      updateAnalyticsConsent(body.consent);
+      updateAnalyticsConsent(user.id, body.consent);
       return Response.json({ analyticsOptIn: body.consent });
     }
     if (!body.event || !allowedKinds.has(body.event.kind as ActivityEventInput["kind"])) {
@@ -29,7 +34,7 @@ export async function POST(request: Request) {
       durationSeconds: Number.isInteger(body.event.durationSeconds) ? Math.max(0, Math.min(3600, body.event.durationSeconds as number)) : 0,
       score: Number.isInteger(body.event.score) ? Math.max(0, Math.min(100, body.event.score as number)) : undefined,
     };
-    return Response.json({ recorded: recordActivity(event) }, { status: 202 });
+    return Response.json({ recorded: recordActivity(user.id, event) }, { status: 202 });
   } catch {
     return Response.json({ error: "Could not save this activity event." }, { status: 500 });
   }
@@ -37,7 +42,9 @@ export async function POST(request: Request) {
 
 export async function DELETE() {
   try {
-    clearActivity();
+    const user = await getCurrentUser();
+    if (!user) return Response.json({ error: "Sign in to clear activity." }, { status: 401 });
+    clearActivity(user.id);
     return Response.json({ cleared: true });
   } catch {
     return Response.json({ error: "Could not clear activity history." }, { status: 500 });
